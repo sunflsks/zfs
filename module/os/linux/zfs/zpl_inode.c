@@ -378,6 +378,7 @@ zpl_getattr_impl(const struct path *path, struct kstat *stat, u32 request_mask,
 {
 	int error;
 	fstrans_cookie_t cookie;
+	struct inode* inodeptr = path->dentry->d_inode;
 
 	cookie = spl_fstrans_mark();
 
@@ -386,10 +387,41 @@ zpl_getattr_impl(const struct path *path, struct kstat *stat, u32 request_mask,
 	 */
 
 #ifdef HAVE_USERNS_IOPS_GETATTR
-	error = -zfs_getattr_fast(user_ns, path->dentry->d_inode, stat);
+	error = -zfs_getattr_fast(user_ns, inodeptr, stat);
 #else
-	error = -zfs_getattr_fast(kcred->user_ns, path->dentry->d_inode, stat);
+	error = -zfs_getattr_fast(kcred->user_ns, inodeptr, stat);
 #endif
+
+#ifdef STATX_BTIME
+	ZFS_TIME_DECODE(&stat->btime, ITOZ(inodeptr)->z_crtime);
+	stat->result_mask |= STATX_BTIME;
+#endif
+
+#ifdef STATX_ATTR_IMMUTABLE
+	if (zfs_flags & ZFS_IMMUTABLE)
+		stat->attributes |= STATX_ATTR_IMMUTABLE;
+	stat->attributes_mask |= STATX_ATTR_IMMUTABLE;
+#endif
+
+#ifdef STATX_ATTR_APPEND
+	if (zfs_flags & ZFS_APPENDONLY)
+		stat->attributes |= STATX_ATTR_APPEND;
+	stat->attributes_mask |= STATX_ATTR_APPEND;
+#endif
+
+#ifdef STATX_ATTR_NODUMP
+	if (zfs_flags & ZFS_NODUMP)
+		stat->attributes |= STATX_ATTR_NODUMP;
+	stat->attributes_mask |= STATX_ATTR_NODUMP;
+#endif
+
+#ifdef STATX_ATTR_COMPRESSED
+	uint8_t compress_num = zpath->dentry->d_sb->s_fs_info->z_os->os_compress;
+	if (compress_num != ZIO_COMPRESS_OFF)
+		stat->attributes |= STATX_ATTR_COMPRESSED;
+	stat->attributes_mask |= STATX_ATTR_COMPRESSED;
+#endif
+
 	spl_fstrans_unmark(cookie);
 	ASSERT3S(error, <=, 0);
 
